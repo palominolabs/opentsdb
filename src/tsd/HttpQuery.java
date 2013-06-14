@@ -469,7 +469,24 @@ final class HttpQuery {
    */
   public void sendFile(final String path,
                        final int max_age) throws IOException {
-    sendFile(HttpResponseStatus.OK, path, max_age);
+    sendFile(HttpResponseStatus.OK, path, max_age, null);
+  }
+
+  /**
+   * Send a file (with zero-copy) to the client with a 200 OK status.
+   * This method doesn't provide any security guarantee.  The caller is
+   * responsible for the argument they pass in.
+   * @param path The path to the file to send to the client.
+   * @param max_age The expiration time of this entity, in seconds.  This is
+   * not a timestamp, it's how old the resource is allowed to be in the client
+   * cache.  See RFC 2616 section 14.9 for more information.  Use 0 to disable
+   * caching.
+   * @param headers list of headers to add, or null to not add any headers
+   */
+  public void sendFile(final String path,
+                       final int max_age,
+                       final List<Header> headers) throws IOException {
+    sendFile(HttpResponseStatus.OK, path, max_age, headers);
   }
 
   /**
@@ -486,9 +503,29 @@ final class HttpQuery {
   public void sendFile(final HttpResponseStatus status,
                        final String path,
                        final int max_age) throws IOException {
+    sendFile(status, path, max_age, null);
+  }
+
+
+  /**
+   * Send a file (with zero-copy) to the client.
+   * This method doesn't provide any security guarantee.  The caller is
+   * responsible for the argument they pass in.
+   * @param status The status of the request (e.g. 200 OK or 404 Not Found).
+   * @param path The path to the file to send to the client.
+   * @param max_age The expiration time of this entity, in seconds.  This is
+   * not a timestamp, it's how old the resource is allowed to be in the client
+   * cache.  See RFC 2616 section 14.9 for more information.  Use 0 to disable
+   * caching.
+   * @param headers list of headers to add, or null to not add any headers
+   */
+  public void sendFile(final HttpResponseStatus status,
+                       final String path,
+                       final int max_age,
+                       final List<Header> headers) throws IOException {
     if (max_age < 0) {
       throw new IllegalArgumentException("Negative max_age=" + max_age
-                                         + " for path=" + path);
+          + " for path=" + path);
     }
     if (!chan.isConnected()) {
       done();
@@ -508,24 +545,32 @@ final class HttpQuery {
     final long length = file.length();
     {
       final DefaultHttpResponse response =
-        new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
+          new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
       final String mimetype = guessMimeTypeFromUri(path);
       response.setHeader(HttpHeaders.Names.CONTENT_TYPE,
-                         mimetype == null ? "text/plain" : mimetype);
+          mimetype == null ? "text/plain" : mimetype);
       final long mtime = new File(path).lastModified();
       if (mtime > 0) {
         response.setHeader(HttpHeaders.Names.AGE,
-                           (System.currentTimeMillis() - mtime) / 1000);
+            (System.currentTimeMillis() - mtime) / 1000);
       } else {
         logWarn("Found a file with mtime=" + mtime + ": " + path);
       }
       response.setHeader(HttpHeaders.Names.CACHE_CONTROL,
-                         max_age == 0 ? "no-cache" : "max-age=" + max_age);
+          max_age == 0 ? "no-cache" : "max-age=" + max_age);
       HttpHeaders.setContentLength(response, length);
+
+      if (headers != null) {
+        for (Header header : headers) {
+          response.setHeader(header.name, header.value);
+        }
+      }
+
       chan.write(response);
     }
+
     final DefaultFileRegion region = new DefaultFileRegion(file.getChannel(),
-                                                           0, length);
+        0, length);
     final ChannelFuture future = chan.write(region);
     future.addListener(new ChannelFutureListener() {
       public void operationComplete(final ChannelFuture future) {
@@ -766,5 +811,15 @@ final class HttpQuery {
              + "<h1>Page Not Found</h1>"
              + "The requested URL was not found on this server."
              + "</blockquote>");
+
+  public static class Header {
+    public final String name;
+    public final String value;
+
+    Header(String name, String value) {
+      this.name = name;
+      this.value = value;
+    }
+  }
 
 }

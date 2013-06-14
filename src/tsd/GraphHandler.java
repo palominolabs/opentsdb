@@ -35,6 +35,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
+import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,6 +74,9 @@ final class GraphHandler implements HttpRpc {
   /** Keep track of the latency (in ms) introduced by running Gnuplot. */
   private static final Histogram gnuplotlatency =
     new Histogram(16000, (short) 2, 100);
+
+  private static final List<HttpQuery.Header> CORS_HEADERS =
+      Lists.newArrayList(new HttpQuery.Header("Access-Control-Allow-Origin", "*"));
 
   /** Executor to run Gnuplot in separate bounded thread pool. */
   private final ThreadPoolExecutor gnuplot;
@@ -811,7 +815,7 @@ final class GraphHandler implements HttpRpc {
       asciifile.close();
     }
     try {
-      query.sendFile(path, max_age);
+      query.sendFile(path, max_age, CORS_HEADERS);
     } catch (IOException e) {
       query.internalError(e);
     }
